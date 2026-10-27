@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://localhost:8085/realms/demo
+  logging:
+    level:
+      org.springframework.security: DEBUG
+      org.springframework.security.oauth2: DEBUG
+      org.springframework.web.reactive.function.client: DEBUG
