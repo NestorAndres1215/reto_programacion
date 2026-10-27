@@ -1,21 +1,19 @@
+
 package api_gateway.exception;
 
+import api_gateway.exception.dto.GatewayErrorResponse;
 import org.springframework.boot.webflux.error.ErrorWebExceptionHandler;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 
-
-import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
-import org.springframework.core.io.buffer.DataBuffer;
 import reactor.core.publisher.Mono;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 @Component
 @Order(-2)
@@ -23,9 +21,13 @@ public class GlobalErrorWebExceptionHandler
         implements ErrorWebExceptionHandler {
 
     private final ObjectMapper objectMapper;
+    private final GatewayErrorAttributes errorAttributes;
 
-    public GlobalErrorWebExceptionHandler(ObjectMapper objectMapper) {
+    public GlobalErrorWebExceptionHandler(
+            ObjectMapper objectMapper,
+            GatewayErrorAttributes errorAttributes) {
         this.objectMapper = objectMapper;
+        this.errorAttributes = errorAttributes;
     }
 
     @Override
@@ -37,30 +39,33 @@ public class GlobalErrorWebExceptionHandler
             return Mono.error(ex);
         }
 
-        exchange.getResponse().setStatusCode(
-                HttpStatus.INTERNAL_SERVER_ERROR);
+        var response = exchange.getResponse();
 
-        exchange.getResponse().getHeaders()
-                .setContentType(MediaType.APPLICATION_JSON);
+        response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
+        response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
 
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("timestamp", Instant.now().toString());
-        body.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
-        body.put("error", "Internal Server Error");
-        body.put("message", "Ha ocurrido un error en el API Gateway");
-        body.put("path", exchange.getRequest().getPath().value());
+        String traceId = exchange.getRequest()
+                .getHeaders()
+                .getFirst("X-Trace-Id");
+
+        if (traceId == null || traceId.isBlank()) {
+            traceId = "no-disponible";
+        }
+
+        GatewayErrorResponse body = errorAttributes.build(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                "INTERNAL_SERVER_ERROR",
+                "Ha ocurrido un error en el API Gateway",
+                traceId
+        );
 
         try {
             byte[] bytes = objectMapper.writeValueAsString(body)
                     .getBytes(StandardCharsets.UTF_8);
 
-            DataBuffer buffer = exchange.getResponse()
-                    .bufferFactory()
-                    .wrap(bytes);
+            DataBuffer buffer = response.bufferFactory().wrap(bytes);
 
-            return exchange.getResponse().writeWith(
-                    Mono.just(buffer));
-
+            return response.writeWith(Mono.just(buffer));
         } catch (Exception serializationException) {
             return Mono.error(serializationException);
         }
